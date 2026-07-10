@@ -45,3 +45,24 @@ teardown() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"Global SSL endpoint already defined"* ]]
 }
+
+@test "(global-cert:generate) installs the crt and csr 640 and the config dir 750" {
+  run gc_generate
+  [ "$status" -eq 0 ]
+  local cperms sperms dperms
+  cperms="$($SUDO stat -c '%a' "$(global_cert_crt)")"
+  sperms="$($SUDO stat -c '%a' "$(global_cert_csr)")"
+  dperms="$($SUDO stat -c '%a' "$(global_cert_root)")"
+  [ "$cperms" = "640" ]
+  [ "$sperms" = "640" ]
+  [ "$dperms" = "750" ]
+}
+
+@test "(global-cert:generate) produces a cert the report marks enabled and self signed" {
+  run gc_generate
+  [ "$status" -eq 0 ]
+  run global_cert_report_value --global-cert-enabled
+  [ "$output" = "true" ]
+  run global_cert_report_value --global-cert-verified
+  [ "$output" = "self signed" ]
+}

@@ -2,6 +2,8 @@
 
 The bats suite exercises the plugin end-to-end inside a docker-compose stack: a derived dokku image with the plugin source bind-mounted at `/plugin-src`. Tests run inside the dokku container so they call `dokku ...` directly. Apps are created with `apps:create` but never deployed - every assertion is made against the files the plugin manages (`/var/lib/dokku/config/global-cert/server.{crt,key,csr}`) and against `dokku global-cert:report` output. Lifecycle triggers the plugin hooks into - `install`, `uninstall`, `post-create`, and `post-app-clone` - are exercised either through real dokku commands (`apps:create`, `apps:clone`) or by invoking the plugin's own trigger scripts directly (with the dokku plugin environment the CLI would normally export), so no deploy is required.
 
+Most files are black-box tests that drive the CLI. `global_cert_internal.bats` is the one exception: it sources `internal-functions` directly (via the `run_internal_fn` helper) to assert branches that the CLI cannot reach deterministically in a single run - most notably the `certs-set` trigger vs `certs:add` fallback, which is otherwise fixed by the installed dokku version. It overrides `PLUGIN_ENABLED_PATH` with a throwaway sandbox so both branches can be asserted regardless of the dokku version under test.
+
 ## Running the suite locally
 
 From the repo root:
@@ -68,3 +70,7 @@ make clean-native
 | `make clean-native` | No-op - global-cert needs no supporting compose services. The native dokku install itself is left in place. |
 
 `setup-native` honors `DOKKU_TAG` to install a specific Dokku release instead of master.
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs both the compose and native modes on every push to `master` and every pull request, across a matrix of dokku versions. Two more workflows handle releases: `tagged-release.yaml` publishes a GitHub release when a tag is pushed, and `bump-version.yaml` is a manual dispatch that bumps `plugin.toml` and pushes a new tag (it requires a `GH_ACCESS_TOKEN` repo secret to push). `.github/dependabot.yaml` keeps the GitHub Actions used by these workflows up to date.
