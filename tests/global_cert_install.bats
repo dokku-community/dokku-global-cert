@@ -2,6 +2,10 @@
 
 load 'test_helper'
 
+teardown() {
+  cleanup_sandboxes
+}
+
 @test "(install) the plugin config root exists after installation" {
   # `make setup` runs `dokku plugin:install`, which fires the install trigger.
   $SUDO test -d "$(global_cert_root)"

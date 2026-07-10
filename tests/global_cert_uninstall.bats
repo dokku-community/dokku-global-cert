@@ -5,6 +5,10 @@ load 'test_helper'
 # The uninstall trigger is fired against a sandboxed DOKKU_LIB_ROOT so the real
 # plugin install is never disturbed by the test run.
 
+teardown() {
+  cleanup_sandboxes
+}
+
 @test "(uninstall) removes the config root for the global-cert plugin" {
   local sandbox
   sandbox="$(sandbox_lib_root)"

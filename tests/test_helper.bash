@@ -136,6 +136,15 @@ sandbox_lib_root() {
   echo "${root}"
 }
 
+# Remove the sandbox trees created by sandbox_lib_root. Triggers fired through
+# $SUDO (native mode) leave root-owned files under them, which bats' own
+# non-root cleanup at the end of the run cannot remove; delete them with $SUDO
+# in teardown so the run's final cleanup succeeds. Call from the teardown of any
+# file that uses sandbox_lib_root.
+cleanup_sandboxes() {
+  $SUDO rm -rf "${BATS_TEST_TMPDIR}"/libroot-* 2>/dev/null || true
+}
+
 # Run a plugin trigger/subcommand script directly (see dokku_plugin_env). The
 # first argument is the script name under the installed plugin dir; the rest are
 # passed through to it. Prefix with `LIB_ROOT=<dir>` to sandbox DOKKU_LIB_ROOT
