@@ -102,3 +102,42 @@ install_fixture_cert() {
   [ "$status" -ne 0 ]
   [[ "$output" == *"Please specify an app to run the command on"* ]]
 }
+
+@test "(global-cert:apply) installs the exact global certificate" {
+  install_fixture_cert
+  create_app "$APP"
+
+  run dokku global-cert:apply "$APP"
+  [ "$status" -eq 0 ]
+  # a fingerprint match, not just a report substring, proves the exact cert landed
+  assert_app_serves_global_cert "$APP"
+}
+
+@test "(global-cert:apply) verifies every app name before applying to any" {
+  install_fixture_cert
+  create_app "$APP"
+
+  # give the app its own cert so we can tell whether a failed apply touched it
+  OWN="$(gc_fixture_dir)"
+  make_self_signed_cert "$OWN" "own.example.com" "DNS:own.example.com"
+  dokku certs:add "$APP" "${OWN}/server.crt" "${OWN}/server.key"
+
+  run dokku global-cert:apply "$APP" "does-not-exist-$$"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"does not exist"* ]]
+
+  # verification runs for the whole list before any apply, so the valid app is
+  # left serving its own cert
+  refute_app_serves_global_cert "$APP"
+}
+
+@test "(global-cert:apply) is idempotent" {
+  install_fixture_cert
+  create_app "$APP"
+
+  run dokku global-cert:apply "$APP"
+  [ "$status" -eq 0 ]
+  run dokku global-cert:apply "$APP"
+  [ "$status" -eq 0 ]
+  assert_app_serves_global_cert "$APP"
+}

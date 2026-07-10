@@ -161,3 +161,108 @@ fire_trigger() {
   shift
   dokku_plugin_env "${lib_override[@]}" "$(plugin_script "$script")" "$@"
 }
+
+# --- certificate assertions -------------------------------------------------
+# The plugin's notion of "the app serves the global cert" is a sha256
+# fingerprint match between the app's leaf cert and the global one (see
+# fn-global-cert-applied). These helpers assert that directly instead of
+# grepping `dokku certs:report` text, so a byte-level cert swap is caught.
+
+# sha256 fingerprint of an app's imported cert / of the global cert. Empty when
+# the file is missing or unreadable (mirrors fn-global-cert-fingerprint).
+app_cert_fingerprint() { $SUDO openssl x509 -noout -fingerprint -sha256 -in "$(app_tls_crt "$1")" 2>/dev/null; }
+global_cert_fingerprint() { $SUDO openssl x509 -noout -fingerprint -sha256 -in "$(global_cert_crt)" 2>/dev/null; }
+
+# Assert an app currently serves the exact global certificate.
+assert_app_serves_global_cert() {
+  local app="$1" app_fp global_fp
+  app_fp="$(app_cert_fingerprint "$app")"
+  global_fp="$(global_cert_fingerprint)"
+  if [[ -z "$app_fp" ]]; then
+    echo "expected app $app to serve the global cert, but it has no readable cert" >&2
+    return 1
+  fi
+  if [[ "$app_fp" != "$global_fp" ]]; then
+    echo "app $app cert ($app_fp) does not match the global cert ($global_fp)" >&2
+    return 1
+  fi
+}
+
+# Assert an app has a cert whose fingerprint differs from the global one (i.e.
+# its own, independent cert).
+refute_app_serves_global_cert() {
+  local app="$1" app_fp global_fp
+  app_fp="$(app_cert_fingerprint "$app")"
+  global_fp="$(global_cert_fingerprint)"
+  if [[ -z "$app_fp" ]]; then
+    echo "expected app $app to have its own cert, but it has none" >&2
+    return 1
+  fi
+  if [[ "$app_fp" == "$global_fp" ]]; then
+    echo "expected app $app not to serve the global cert, but it does ($app_fp)" >&2
+    return 1
+  fi
+}
+
+# openssl accessors for an app's imported cert, ported from dokku-letsencrypt's
+# cert_subject/cert_issuer/cert_san helpers.
+app_cert_subject() { $SUDO openssl x509 -in "$(app_tls_crt "$1")" -noout -subject 2>/dev/null; }
+app_cert_issuer() { $SUDO openssl x509 -in "$(app_tls_crt "$1")" -noout -issuer 2>/dev/null; }
+app_cert_san() {
+  $SUDO openssl x509 -in "$(app_tls_crt "$1")" -noout -text 2>/dev/null |
+    grep --after-context=1 'Subject Alternative Name' | tail -n 1 | xargs
+}
+
+# Assert the app cert's SAN list contains <needle>.
+assert_app_cert_san_contains() {
+  local app="$1" needle="$2"
+  app_cert_san "$app" | grep -qF "$needle"
+}
+
+# Thin wrappers over the repeated `$SUDO test -f` on an app's TLS cert.
+assert_app_has_cert() { $SUDO test -f "$(app_tls_crt "$1")"; }
+refute_app_has_cert() { $SUDO test ! -f "$(app_tls_crt "$1")"; }
+
+# --- internal-function unit-test plumbing -----------------------------------
+# Source the installed internal-functions and run a single function under the
+# plugin environment, capturing status/output the way bats' `run` expects.
+# Leading `ENABLED_PATH=<dir>` / `LIB_ROOT=<dir>` override PLUGIN_ENABLED_PATH /
+# DOKKU_LIB_ROOT so version-fixed branches (certs-set vs certs:add) and config
+# roots can be driven deterministically. `set +e` is re-enabled after sourcing
+# because internal-functions sets `set -eo pipefail`, which would otherwise
+# abort the shell (and lose $status) on any function that returns non-zero.
+run_internal_fn() {
+  local env_overrides=()
+  while [[ "${1:-}" == ENABLED_PATH=* || "${1:-}" == LIB_ROOT=* ]]; do
+    case "$1" in
+      ENABLED_PATH=*) env_overrides+=(PLUGIN_ENABLED_PATH="${1#ENABLED_PATH=}") ;;
+      LIB_ROOT=*) env_overrides+=(DOKKU_LIB_ROOT="${1#LIB_ROOT=}") ;;
+    esac
+    shift
+  done
+  # the $1/$@ inside the single-quoted script are expanded by the inner bash -c,
+  # not the current shell, which is exactly what we want here
+  # shellcheck disable=SC2016
+  dokku_plugin_env "${env_overrides[@]}" bash -c '
+    source "$1"
+    set +e
+    shift
+    "$@"
+  ' _ "$(plugin_script internal-functions)" "$@"
+}
+
+# Create a throwaway enabled-plugins tree and echo its path. With any argument,
+# it ships an executable `somepkg/certs-set` so fn-global-cert-certs-set-available
+# detects the trigger; without one, the tree is empty (the certs:add fallback).
+# The returned path is world-traversable; callers should `rm -rf` it in teardown.
+make_certs_set_sandbox() {
+  local with_trigger="${1:-}" root
+  root="$(mktemp -d /tmp/gc-enabled.XXXXXX)"
+  chmod 755 "$root"
+  if [[ -n "$with_trigger" ]]; then
+    mkdir -p "$root/somepkg"
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$root/somepkg/certs-set"
+    chmod +x "$root/somepkg/certs-set"
+  fi
+  echo "$root"
+}

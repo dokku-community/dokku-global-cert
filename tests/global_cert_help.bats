@@ -81,3 +81,22 @@ load 'test_helper'
   [[ "$output" == *"usage:"* ]]
   [[ "$output" == *"global-cert:update"* ]]
 }
+
+@test "(global-cert:help remove) prints per-subcommand usage" {
+  run dokku global-cert:help remove
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"usage:"* ]]
+  [[ "$output" == *"global-cert:remove"* ]]
+}
+
+@test "(global-cert:help set) renders the --force flag" {
+  run dokku global-cert:help set
+  [ "$status" -eq 0 ]
+  # the #F annotation renders --force in a flags section
+  [[ "$output" == *"--force"* ]]
+}
+
+@test "(global-cert:help) an unknown subcommand exits non-zero" {
+  run dokku global-cert:help bogus-subcommand
+  [ "$status" -ne 0 ]
+}

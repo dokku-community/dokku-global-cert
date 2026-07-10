@@ -60,3 +60,20 @@ install_fixture_cert() {
   [ "$status" -ne 0 ]
   [[ "$output" == *"A global SSL endpoint is not defined"* ]]
 }
+
+@test "(global-cert:remove) leaves a generated csr in place" {
+  gc_generate
+  $SUDO test -f "$(global_cert_csr)"
+
+  run dokku global-cert:remove
+  [ "$status" -eq 0 ]
+
+  # remove deletes only the crt/key endpoint; the csr from generate remains
+  $SUDO test ! -f "$(global_cert_crt)"
+  $SUDO test ! -f "$(global_cert_key)"
+  $SUDO test -f "$(global_cert_csr)"
+
+  run dokku global-cert:show csr
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"BEGIN CERTIFICATE REQUEST"* ]]
+}

@@ -5,12 +5,14 @@ load 'test_helper'
 setup() {
   reset_global_cert
   APP="$(new_app_name)"
+  APP2=""
   SRC=""
   OWN=""
 }
 
 teardown() {
   cleanup_app "$APP"
+  [ -n "${APP2:-}" ] && cleanup_app "$APP2"
   reset_global_cert
   [ -n "${SRC:-}" ] && rm -rf "$SRC"
   [ -n "${OWN:-}" ] && rm -rf "$OWN"
@@ -195,4 +197,89 @@ install_fixture_cert() {
   [ "$status" -eq 0 ]
   [ "$(echo "$output" | jq -r '.applied')" = "true" ]
   [ "$(echo "$output" | jq -r '.enabled')" = "true" ]
+}
+
+# --- no-app (per-app) scope -------------------------------------------------
+
+@test "(global-cert:report) with no app argument prints a section per installed app" {
+  install_fixture_cert
+  create_app "$APP"
+  APP2="$(new_app_name)"
+  create_app "$APP2"
+
+  run dokku global-cert:report
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"${APP} global-cert information"* ]]
+  [[ "$output" == *"${APP2} global-cert information"* ]]
+}
+
+@test "(global-cert:report) with a bare info flag and no app prints the value per app" {
+  install_fixture_cert
+  create_app "$APP"
+  APP2="$(new_app_name)"
+  create_app "$APP2"
+
+  run bash -c "dokku global-cert:report --global-cert-dir 2>/dev/null"
+  [ "$status" -eq 0 ]
+  # the app-independent dir prints once per app; both of ours are represented
+  local count
+  count="$(printf '%s\n' "$output" | grep -c "^$(global_cert_root)$")"
+  [ "$count" -ge 2 ]
+}
+
+# --- --format json edge cases -----------------------------------------------
+
+@test "(global-cert:report) --global --format json without a cert emits enabled false and empty values" {
+  run bash -c "dokku global-cert:report --global --format json 2>/dev/null"
+  [ "$status" -eq 0 ]
+  [ "$(echo "$output" | jq -r '.enabled')" = "false" ]
+  [ "$(echo "$output" | jq -r '.hostnames')" = "" ]
+  [ "$(echo "$output" | jq -r '.issuer')" = "" ]
+}
+
+@test "(global-cert:report) --global --format json exposes the full key set with the prefix stripped" {
+  install_fixture_cert
+  run bash -c "dokku global-cert:report --global --format json 2>/dev/null"
+  [ "$status" -eq 0 ]
+  local keys
+  keys="$(echo "$output" | jq -r '. | keys | sort | join(",")')"
+  [ "$keys" = "dir,enabled,expires-at,hostnames,issuer,starts-at,subject,verified" ]
+  # applied is app-specific and must not appear in the global scope
+  [ "$(echo "$output" | jq -r 'has("applied")')" = "false" ]
+}
+
+# --- app scope, error and applied branches ----------------------------------
+
+@test "(global-cert:report) on a nonexistent app fails via verify_app_name" {
+  run dokku global-cert:report "does-not-exist-$$"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"does not exist"* ]]
+}
+
+@test "(global-cert:report) --global-cert-applied is false when no global cert is installed" {
+  create_app "$APP"
+  run bash -c "dokku global-cert:report '$APP' --global-cert-applied 2>/dev/null"
+  [ "$status" -eq 0 ]
+  [ "$output" = "false" ]
+}
+
+@test "(global-cert:report) --global-cert-applied is false after the app cert is removed" {
+  install_fixture_cert
+  create_app "$APP"
+  run dokku global-cert:apply "$APP"
+  [ "$status" -eq 0 ]
+
+  dokku certs:remove "$APP"
+
+  run bash -c "dokku global-cert:report '$APP' --global-cert-applied 2>/dev/null"
+  [ "$status" -eq 0 ]
+  [ "$output" = "false" ]
+}
+
+@test "(global-cert:report) app scope rejects --format combined with an info flag" {
+  install_fixture_cert
+  create_app "$APP"
+  run dokku global-cert:report "$APP" --format json --global-cert-applied
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"--format flag cannot be specified when specifying an info flag"* ]]
 }

@@ -6,11 +6,16 @@ setup() {
   reset_global_cert
   SRC="$(gc_fixture_dir)"
   make_self_signed_cert "$SRC" "global.example.com"
+  APP=""
+  OWN=""
 }
 
 teardown() {
+  [ -n "${APP:-}" ] && cleanup_app "$APP"
   reset_global_cert
   rm -rf "$SRC"
+  [ -n "${OWN:-}" ] && rm -rf "$OWN"
+  return 0
 }
 
 # --- file import ------------------------------------------------------------
@@ -124,4 +129,65 @@ teardown() {
   run dokku global-cert:set <"$tarball"
   [ "$status" -ne 0 ]
   [[ "$output" == *"Tar archive contains more than one .key file"* ]]
+}
+
+# --- sync / propagation -----------------------------------------------------
+
+@test "(global-cert:set) logs Applying then Re-applying as the cert is set and renewed" {
+  APP="$(new_app_name)"
+  create_app "$APP"
+
+  run dokku global-cert:set "${SRC}/server.crt" "${SRC}/server.key"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Applying global certificate to $APP"* ]]
+
+  # a second, different cert is a renewal: the app currently serves the previous
+  # global cert, so the sync re-applies rather than skips it
+  OWN="$(gc_fixture_dir)"
+  make_self_signed_cert "$OWN" "global2.example.com"
+
+  run dokku global-cert:set "${OWN}/server.crt" "${OWN}/server.key"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Re-applying global certificate to $APP"* ]]
+}
+
+@test "(global-cert:set) -f reapplies to an app that has its own certificate" {
+  APP="$(new_app_name)"
+  create_app "$APP"
+
+  # the app gets its own, independent cert first
+  OWN="$(gc_fixture_dir)"
+  make_self_signed_cert "$OWN" "own.example.com" "DNS:own.example.com"
+  dokku certs:add "$APP" "${OWN}/server.crt" "${OWN}/server.key"
+
+  run dokku global-cert:set -f "${SRC}/server.crt" "${SRC}/server.key"
+  [ "$status" -eq 0 ]
+  assert_app_serves_global_cert "$APP"
+}
+
+@test "(global-cert:set) accepts --force after the file paths" {
+  APP="$(new_app_name)"
+  create_app "$APP"
+
+  OWN="$(gc_fixture_dir)"
+  make_self_signed_cert "$OWN" "own.example.com" "DNS:own.example.com"
+  dokku certs:add "$APP" "${OWN}/server.crt" "${OWN}/server.key"
+
+  run dokku global-cert:set "${SRC}/server.crt" "${SRC}/server.key" --force
+  [ "$status" -eq 0 ]
+  assert_app_serves_global_cert "$APP"
+}
+
+@test "(global-cert:set) is idempotent when the same cert is set twice" {
+  APP="$(new_app_name)"
+  create_app "$APP"
+
+  dokku global-cert:set "${SRC}/server.crt" "${SRC}/server.key"
+  assert_app_serves_global_cert "$APP"
+
+  run dokku global-cert:set "${SRC}/server.crt" "${SRC}/server.key"
+  [ "$status" -eq 0 ]
+  run global_cert_enabled
+  [ "$output" = "true" ]
+  assert_app_serves_global_cert "$APP"
 }
