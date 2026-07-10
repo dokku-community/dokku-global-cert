@@ -93,11 +93,26 @@ install_fixture_cert() {
   [ "$output" = "global.example.com www.example.com" ]
 }
 
+@test "(global-cert:report) --global-cert-hostnames reports the CN for a CN-only cert" {
+  # a cert with only a CN and no SAN still reports its CN; the subject is
+  # normalized so the CN is extracted regardless of the OpenSSL version.
+  SRC="$(gc_fixture_dir)"
+  make_self_signed_cert "$SRC" "cn-only.example.com"
+  dokku global-cert:set "${SRC}/server.crt" "${SRC}/server.key"
+
+  run global_cert_report_value --global-cert-hostnames
+  [ "$status" -eq 0 ]
+  [ "$output" = "cn-only.example.com" ]
+}
+
 @test "(global-cert:report) --global-cert-subject reflects the cert subject" {
   install_fixture_cert
   run global_cert_report_value --global-cert-subject
   [ "$status" -eq 0 ]
-  [[ "$output" == *"global.example.com"* ]]
+  # the subject is normalized (-nameopt compat): the "subject=" prefix is
+  # stripped and RDNs are "; "-joined. The fixture's subject is only a CN, so it
+  # reports exactly "CN=...".
+  [ "$output" = "CN=global.example.com" ]
 }
 
 @test "(global-cert:report) --global-cert-issuer reflects the cert issuer" {

@@ -43,18 +43,18 @@ teardown() {
 
 # --- fn-get-ssl-hostnames ---------------------------------------------------
 
-@test "(fn-get-ssl-hostnames) yields no names for a CN-only cert (extraction is SAN-based)" {
+@test "(fn-get-ssl-hostnames) returns the CN for a CN-only cert" {
   local dir
   dir="$(gc_fixture_dir)"
   FIXTURES+=("$dir")
   make_self_signed_cert "$dir" "cn-only.example.com"
 
-  # hostnames are derived from the SAN extension; a cert with only a CN and no
-  # SAN yields nothing on OpenSSL 3.x, whose subject prints "CN = ..." so the
-  # legacy "/CN=" pipeline finds no match. The else branch still exits cleanly.
+  # a cert with only a CN and no SAN reports its CN. The subject is normalized
+  # with -nameopt RFC2253 so the CN is extracted regardless of the OpenSSL
+  # version's subject formatting (legacy "/CN=" vs OpenSSL 3.x "CN = ").
   run run_internal_fn fn-get-ssl-hostnames "$dir"
   [ "$status" -eq 0 ]
-  [ -z "$output" ]
+  [ "$output" = "cn-only.example.com" ]
 }
 
 @test "(fn-get-ssl-hostnames) returns the SAN entries sorted and de-duplicated" {
