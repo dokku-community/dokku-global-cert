@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+source "$(cd "$(dirname "$(dirname "${BASH_SOURCE[0]}")" )" && pwd)/config"
+source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
+source "$PLUGIN_AVAILABLE_PATH/global-cert/internal-functions"
+set -eo pipefail; [[ $DOKKU_TRACE ]] && set -x
+
+cmd-global-cert-apply() {
+  #E apply the stored global certificate to a single existing app
+  #E dokku $PLUGIN_COMMAND_PREFIX:apply node-js-app
+  #E apply the stored global certificate to multiple apps at once
+  #E dokku $PLUGIN_COMMAND_PREFIX:apply node-js-app python-app
+  #A app..., one or more apps to apply the global certificate to
+  declare desc="applies the stored global certificate to one or more existing apps, overwriting any certificate they already have"
+  local cmd="$PLUGIN_COMMAND_PREFIX:apply" argv=("$@"); [[ ${argv[0]} == "$cmd" ]] && shift 1
+  # count positional args with $# rather than an array length; the help
+  # renderer greps for hash-A style annotations and would misread the latter
+  [[ "$#" -eq 0 ]] && dokku_log_fail "Please specify an app to run the command on"
+  declare APP_LIST=("$@")
+
+  if ! fn-is-ssl-enabled "$PLUGIN_CONFIG_ROOT"; then
+    dokku_log_fail "A global SSL endpoint is not defined"
+  fi
+
+  local app
+  for app in "${APP_LIST[@]}"; do
+    verify_app_name "$app"
+  done
+
+  local CRT_FILE="$PLUGIN_CONFIG_ROOT/server.crt"
+  local KEY_FILE="$PLUGIN_CONFIG_ROOT/server.key"
+  for app in "${APP_LIST[@]}"; do
+    dokku_log_info1 "Applying global certificate to $app"
+    fn-global-cert-apply "$app" "$CRT_FILE" "$KEY_FILE"
+  done
+}
+
+cmd-global-cert-apply "$@"

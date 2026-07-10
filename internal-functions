@@ -175,6 +175,7 @@ fn-global-cert-help-content() {
   declare desc="return $PLUGIN_COMMAND_PREFIX plugin help content"
   cat<<help_content
     ${PLUGIN_COMMAND_PREFIX}, Alias for certs:help
+    ${PLUGIN_COMMAND_PREFIX}:apply <app>..., Applies the global certificate to one or more existing apps, overwriting any certificate they already have
     ${PLUGIN_COMMAND_PREFIX}:set [--force] CRT KEY, Adds a global ssl endpoint. Can also import from a tarball on stdin
     ${PLUGIN_COMMAND_PREFIX}:generate, Generate a key and certificate signing request (and self-signed certificate)
     ${PLUGIN_COMMAND_PREFIX}:remove, Remove the SSL configuration

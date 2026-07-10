@@ -6,7 +6,7 @@ load 'test_helper'
   run dokku global-cert
   [ "$status" -eq 0 ]
   [[ "$output" == *"global-cert"* ]]
-  for subcommand in generate remove report set; do
+  for subcommand in apply generate remove report set; do
     [[ "$output" == *"global-cert:${subcommand}"* ]]
   done
 }
@@ -14,7 +14,7 @@ load 'test_helper'
 @test "(global-cert:help) lists every subcommand" {
   run dokku global-cert:help
   [ "$status" -eq 0 ]
-  for subcommand in generate remove report set; do
+  for subcommand in apply generate remove report set; do
     [[ "$output" == *"global-cert:${subcommand}"* ]]
   done
 }
@@ -22,9 +22,18 @@ load 'test_helper'
 @test "(global-cert:default) aliases the help output" {
   run dokku global-cert:default
   [ "$status" -eq 0 ]
-  for subcommand in generate remove report set; do
+  for subcommand in apply generate remove report set; do
     [[ "$output" == *"global-cert:${subcommand}"* ]]
   done
+}
+
+@test "(global-cert:help apply) prints per-subcommand usage" {
+  run dokku global-cert:help apply
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"usage:"* ]]
+  [[ "$output" == *"global-cert:apply"* ]]
+  # the #A argument annotation renders as an arguments section
+  [[ "$output" == *"app"* ]]
 }
 
 @test "(global-cert:help set) prints per-subcommand usage" {

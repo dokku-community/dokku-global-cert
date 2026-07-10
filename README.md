@@ -16,6 +16,7 @@ dokku plugin:install https://github.com/josegonzalez/dokku-global-cert.git globa
 ## commands
 
 ```shell
+global-cert:apply <app>...  # Applies the global certificate to one or more existing apps, overwriting any certificate they already have
 global-cert:generate        # Generate a key and certificate signing request (and self-signed certificate)
 global-cert:remove          # Remove the SSL configuration
 global-cert:report [<flag>] # Displays a global ssl report
@@ -59,6 +60,22 @@ The `--force` flag also works as a global flag:
 ```shell
 dokku --force global-cert:set server.crt server.key
 ```
+
+### applying the global certificate to an existing app
+
+The `global-cert:apply` command applies the currently stored global certificate to one or more existing applications, overwriting whatever certificate each application already has. It reuses the certificate already set with `global-cert:set`, so no certificate files are needed:
+
+```shell
+dokku global-cert:apply node-js-app
+```
+
+Multiple applications can be given in a single invocation:
+
+```shell
+dokku global-cert:apply node-js-app python-app
+```
+
+Unlike `global-cert:set`, which leaves applications with their own certificate untouched, `global-cert:apply` always overwrites the certificate on the named applications. This is the way to switch an application that was given its own certificate - for example one issued by `dokku-letsencrypt` - back to the global certificate. A global certificate must be set first; applying to an application that does not exist, or when no global certificate is set, fails.
 
 ### certificate removal
 
