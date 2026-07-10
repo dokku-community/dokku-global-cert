@@ -12,8 +12,7 @@ hook-post-app-clone-global-cert() {
   local KEY_FILE="$PLUGIN_CONFIG_ROOT/server.key"
 
   if fn-is-ssl-enabled "$PLUGIN_CONFIG_ROOT"; then
-    # we should export certs_set as a function in the certs plugin so that this works with the remote cli...
-    dokku certs:add "$APP" "$CRT_FILE" "$KEY_FILE"
+    fn-global-cert-apply "$APP" "$CRT_FILE" "$KEY_FILE"
   fi
 }
 

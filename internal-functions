@@ -54,6 +54,58 @@ fn-is-tar-import() {
   return 0
 }
 
+fn-global-cert-fingerprint() {
+  declare desc="prints the sha256 fingerprint of a certificate, empty when unreadable"
+  local CRT_FILE="$1"
+
+  [[ -r "$CRT_FILE" ]] || return 0
+  openssl x509 -noout -fingerprint -sha256 -in "$CRT_FILE" 2>/dev/null || true
+}
+
+fn-global-cert-certs-set-available() {
+  declare desc="returns 0 if an enabled plugin provides the certs-set trigger"
+  local trigger
+
+  # a plugn trigger exists when some enabled plugin ships an executable script
+  # named after it; certs-set was added to the certs plugin after dokku 0.38.3
+  for trigger in "${PLUGIN_ENABLED_PATH:-/var/lib/dokku/plugins/enabled}"/*/certs-set; do
+    [[ -x "$trigger" ]] && return 0
+  done
+  return 1
+}
+
+fn-global-cert-apply() {
+  declare desc="installs the global cert on an app, preferring the certs-set trigger over certs:add"
+  local APP="$1" CRT_FILE="$2" KEY_FILE="$3"
+
+  if fn-global-cert-certs-set-available; then
+    plugn trigger certs-set "$APP" "$CRT_FILE" "$KEY_FILE"
+  else
+    dokku certs:add "$APP" "$CRT_FILE" "$KEY_FILE"
+  fi
+}
+
+fn-global-cert-propagate() {
+  declare desc="re-applies the global cert to every app currently using the previous global cert"
+  local OLD_FINGERPRINT="$1"
+  local CRT_FILE KEY_FILE app crt
+
+  [[ -n "$OLD_FINGERPRINT" ]] || return 0
+  CRT_FILE="$PLUGIN_CONFIG_ROOT/server.crt"
+  KEY_FILE="$PLUGIN_CONFIG_ROOT/server.key"
+
+  (
+    shopt -s nullglob
+    for crt in "$DOKKU_ROOT"/*/tls/server.crt; do
+      [[ "$(fn-global-cert-fingerprint "$crt")" == "$OLD_FINGERPRINT" ]] || continue
+      app="${crt#"$DOKKU_ROOT"/}"
+      app="${app%%/*}"
+      dokku_log_info1 "Re-applying global certificate to $app"
+      fn-global-cert-apply "$app" "$CRT_FILE" "$KEY_FILE" || true
+    done
+  )
+}
+
 fn-ssl-enabled() {
   local SSL_ENABLED=false
 
