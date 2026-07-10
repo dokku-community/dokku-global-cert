@@ -24,7 +24,7 @@ global-cert:set CRT KEY     # Sets a global ssl endpoint. Can also import from a
 
 ## usage
 
-While Dokku supports per-application SSL certificates, it does not natively provide global certificate setting. This plugin allows setting a global certificate, which will then be imported for all new applications. The interface is similar to that of the official `certs` plugin, though with minor changes to reflect it's usage.
+While Dokku supports per-application SSL certificates, it does not natively provide global certificate setting. This plugin allows setting a global certificate, which will then be imported for all new applications. Updating the global certificate re-applies it to every application that currently uses it, so renewals (for example a rotated wildcard certificate) propagate to existing applications and are served immediately. Applications that have been given their own certificate are left untouched. The interface is similar to that of the official `certs` plugin, though with minor changes to reflect it's usage.
 
 ### certificate setting
 

@@ -7,6 +7,7 @@ setup() {
   APP="$(new_app_name)"
   APP2=""
   SRC=""
+  OWN=""
 }
 
 teardown() {
@@ -14,12 +15,17 @@ teardown() {
   [ -n "${APP2:-}" ] && cleanup_app "$APP2"
   reset_global_cert
   [ -n "${SRC:-}" ] && rm -rf "$SRC"
+  [ -n "${OWN:-}" ] && rm -rf "$OWN"
   return 0
 }
 
+# Install a global cert whose CN/SAN is <cn> (default global.example.com). Safe
+# to call more than once per test; the prior fixture dir is removed first.
 install_fixture_cert() {
+  local cn="${1:-global.example.com}"
+  [ -n "${SRC:-}" ] && rm -rf "$SRC"
   SRC="$(gc_fixture_dir)"
-  make_self_signed_cert "$SRC" "global.example.com" "DNS:global.example.com"
+  make_self_signed_cert "$SRC" "$cn" "DNS:${cn}"
   dokku global-cert:set "${SRC}/server.crt" "${SRC}/server.key"
 }
 
@@ -47,6 +53,39 @@ install_fixture_cert() {
   APP2="$(new_app_name)"
   dokku apps:clone --skip-deploy "$APP" "$APP2"
   $SUDO test -f "$(app_tls_crt "$APP2")"
+}
+
+@test "(global-cert:set) re-applies an updated global cert to apps that use it" {
+  install_fixture_cert
+  create_app "$APP"
+  run dokku certs:report "$APP"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"global.example.com"* ]]
+
+  # updating the global cert propagates to the app that is using it
+  install_fixture_cert "updated.example.com"
+
+  run dokku certs:report "$APP"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"updated.example.com"* ]]
+}
+
+@test "(global-cert:set) leaves an app with its own certificate untouched" {
+  install_fixture_cert
+  create_app "$APP"
+
+  # give the app its own, independent certificate
+  OWN="$(gc_fixture_dir)"
+  make_self_signed_cert "$OWN" "own.example.com" "DNS:own.example.com"
+  dokku certs:add "$APP" "${OWN}/server.crt" "${OWN}/server.key"
+
+  # updating the global cert must not overwrite the app's own certificate
+  install_fixture_cert "updated.example.com"
+
+  run dokku certs:report "$APP"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"own.example.com"* ]]
+  [[ "$output" != *"updated.example.com"* ]]
 }
 
 @test "(post-create) fails when fired without an app" {

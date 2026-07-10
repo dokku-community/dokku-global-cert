@@ -45,11 +45,18 @@ cmd-global-cert-set() {
     dokku_log_fail "Tar archive containing server.crt and server.key expected on stdin"
   fi
 
+  # capture the outgoing global cert's fingerprint before it is overwritten, so
+  # apps that currently use it can be re-issued the new cert below
+  local OLD_FINGERPRINT
+  OLD_FINGERPRINT="$(fn-global-cert-fingerprint "$PLUGIN_CONFIG_ROOT/server.crt")"
+
   mkdir -p "$PLUGIN_CONFIG_ROOT"
   cp "$CRT_FILE" "$PLUGIN_CONFIG_ROOT/server.crt"
   cp "$KEY_FILE" "$PLUGIN_CONFIG_ROOT/server.key"
   chmod 750 "$PLUGIN_CONFIG_ROOT"
   chmod 640 "$PLUGIN_CONFIG_ROOT/server.crt" "$PLUGIN_CONFIG_ROOT/server.key"
+
+  fn-global-cert-propagate "$OLD_FINGERPRINT"
 }
 
 cmd-global-cert-set "$@"
