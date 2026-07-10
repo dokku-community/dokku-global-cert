@@ -1,4 +1,4 @@
-# dokku-global-cert [![Build Status](https://travis-ci.org/josegonzalez/dokku-global-cert.svg?branch=master)](https://travis-ci.org/josegonzalez/dokku-global-cert)
+# dokku-global-cert [![ci](https://github.com/dokku-community/dokku-global-cert/actions/workflows/ci.yml/badge.svg)](https://github.com/dokku-community/dokku-global-cert/actions/workflows/ci.yml)
 
 Manages a global certificate for dokku.
 
