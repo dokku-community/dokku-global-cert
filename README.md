@@ -19,12 +19,12 @@ dokku plugin:install https://github.com/josegonzalez/dokku-global-cert.git globa
 global-cert:generate        # Generate a key and certificate signing request (and self-signed certificate)
 global-cert:remove          # Remove the SSL configuration
 global-cert:report [<flag>] # Displays a global ssl report
-global-cert:set CRT KEY     # Sets a global ssl endpoint. Can also import from a tarball on stdin
+global-cert:set [--force] CRT KEY # Sets a global ssl endpoint. Can also import from a tarball on stdin
 ```
 
 ## usage
 
-While Dokku supports per-application SSL certificates, it does not natively provide global certificate setting. This plugin allows setting a global certificate, which will then be imported for all new applications. Updating the global certificate re-applies it to every application that currently uses it, so renewals (for example a rotated wildcard certificate) propagate to existing applications and are served immediately. Applications that have been given their own certificate are left untouched. The interface is similar to that of the official `certs` plugin, though with minor changes to reflect it's usage.
+While Dokku supports per-application SSL certificates, it does not natively provide global certificate setting. This plugin allows setting a global certificate, which is imported for all new applications and applied to every existing application that does not already have its own certificate. Updating the global certificate also re-applies it to every application that currently uses it, so renewals (for example a rotated wildcard certificate) propagate to existing applications and are served immediately. Applications that have been given their own certificate are left untouched unless `--force` is passed. The interface is similar to that of the official `certs` plugin, though with minor changes to reflect it's usage.
 
 ### certificate setting
 
@@ -44,6 +44,20 @@ You can also import certs without using `stdin`, and instead specifying a full p
 
 ```shell
 dokku global-cert:set server.crt server.key
+```
+
+Setting the global certificate applies it to every existing application that does not already have its own certificate, so applications created before the global certificate was set start serving it immediately. Re-running `global-cert:set` is therefore also the way to apply the certificate to applications on an existing install.
+
+To re-apply the global certificate to every application - including applications that were given their own certificate - pass `--force`:
+
+```shell
+dokku global-cert:set --force server.crt server.key
+```
+
+The `--force` flag also works as a global flag:
+
+```shell
+dokku --force global-cert:set server.crt server.key
 ```
 
 ### certificate removal

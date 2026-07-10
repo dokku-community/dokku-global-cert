@@ -20,13 +20,14 @@ teardown() {
 }
 
 # Install a global cert whose CN/SAN is <cn> (default global.example.com). Safe
-# to call more than once per test; the prior fixture dir is removed first.
+# to call more than once per test; the prior fixture dir is removed first. Any
+# arguments after <cn> are forwarded to `global-cert:set` (e.g. --force).
 install_fixture_cert() {
-  local cn="${1:-global.example.com}"
+  local cn="${1:-global.example.com}"; shift || true
   [ -n "${SRC:-}" ] && rm -rf "$SRC"
   SRC="$(gc_fixture_dir)"
   make_self_signed_cert "$SRC" "$cn" "DNS:${cn}"
-  dokku global-cert:set "${SRC}/server.crt" "${SRC}/server.key"
+  dokku global-cert:set "$@" "${SRC}/server.crt" "${SRC}/server.key"
 }
 
 @test "(post-create) applies the global cert to a newly created app" {
@@ -86,6 +87,77 @@ install_fixture_cert() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"own.example.com"* ]]
   [[ "$output" != *"updated.example.com"* ]]
+}
+
+@test "(global-cert:set) applies the global cert to a pre-existing app without a certificate" {
+  # the app exists before any global cert is set, so it starts without a cert
+  create_app "$APP"
+  $SUDO test ! -f "$(app_tls_crt "$APP")"
+
+  # setting the global cert now applies it to the pre-existing app
+  install_fixture_cert
+  $SUDO test -f "$(app_tls_crt "$APP")"
+  run dokku certs:report "$APP"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"global.example.com"* ]]
+}
+
+@test "(global-cert:set) leaves a pre-existing app with its own certificate untouched" {
+  create_app "$APP"
+
+  # give the app its own certificate before any global cert exists
+  OWN="$(gc_fixture_dir)"
+  make_self_signed_cert "$OWN" "own.example.com" "DNS:own.example.com"
+  dokku certs:add "$APP" "${OWN}/server.crt" "${OWN}/server.key"
+
+  # setting the global cert for the first time must not clobber the app's own cert
+  install_fixture_cert
+
+  run dokku certs:report "$APP"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"own.example.com"* ]]
+  [[ "$output" != *"global.example.com"* ]]
+}
+
+@test "(global-cert:set --force) replaces an app-specific certificate on every app" {
+  install_fixture_cert
+  create_app "$APP"
+
+  # give the app its own certificate
+  OWN="$(gc_fixture_dir)"
+  make_self_signed_cert "$OWN" "own.example.com" "DNS:own.example.com"
+  dokku certs:add "$APP" "${OWN}/server.crt" "${OWN}/server.key"
+
+  # --force reapplies the global cert to every app, replacing the app-specific one
+  install_fixture_cert "updated.example.com" --force
+
+  run dokku certs:report "$APP"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"updated.example.com"* ]]
+  [[ "$output" != *"own.example.com"* ]]
+}
+
+@test "(dokku --force global-cert:set) replaces an app-specific certificate on every app" {
+  install_fixture_cert
+  create_app "$APP"
+
+  # give the app its own certificate
+  OWN="$(gc_fixture_dir)"
+  make_self_signed_cert "$OWN" "own.example.com" "DNS:own.example.com"
+  dokku certs:add "$APP" "${OWN}/server.crt" "${OWN}/server.key"
+
+  # the global --force flag is stripped by the cli before the subcommand sees it,
+  # so this exercises the DOKKU_APPS_FORCE_DELETE path
+  rm -rf "$SRC"
+  SRC="$(gc_fixture_dir)"
+  make_self_signed_cert "$SRC" "forced.example.com" "DNS:forced.example.com"
+  run dokku --force global-cert:set "${SRC}/server.crt" "${SRC}/server.key"
+  [ "$status" -eq 0 ]
+
+  run dokku certs:report "$APP"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"forced.example.com"* ]]
+  [[ "$output" != *"own.example.com"* ]]
 }
 
 @test "(post-create) fails when fired without an app" {

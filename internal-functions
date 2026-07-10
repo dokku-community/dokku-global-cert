@@ -85,25 +85,36 @@ fn-global-cert-apply() {
   fi
 }
 
-fn-global-cert-propagate() {
-  declare desc="re-applies the global cert to every app currently using the previous global cert"
-  local OLD_FINGERPRINT="$1"
-  local CRT_FILE KEY_FILE app crt
+fn-global-cert-sync() {
+  declare desc="applies the global cert to apps lacking their own cert; --force reapplies to every app"
+  local OLD_FINGERPRINT="$1" FORCE="${2:-false}"
+  local CRT_FILE KEY_FILE apps app crt fingerprint
 
-  [[ -n "$OLD_FINGERPRINT" ]] || return 0
+  fn-is-ssl-enabled "$PLUGIN_CONFIG_ROOT" || return 0
   CRT_FILE="$PLUGIN_CONFIG_ROOT/server.crt"
   KEY_FILE="$PLUGIN_CONFIG_ROOT/server.key"
 
-  (
-    shopt -s nullglob
-    for crt in "$DOKKU_ROOT"/*/tls/server.crt; do
-      [[ "$(fn-global-cert-fingerprint "$crt")" == "$OLD_FINGERPRINT" ]] || continue
-      app="${crt#"$DOKKU_ROOT"/}"
-      app="${app%%/*}"
+  # dokku_apps hard-fails ("You haven't deployed any applications yet") when there
+  # are no apps; swallow that so a first-time set with no apps is a no-op.
+  apps="$(dokku_apps 2>/dev/null)" || apps=""
+  [[ -n "$apps" ]] || return 0
+
+  while IFS= read -r app; do
+    [[ -n "$app" ]] || continue
+    crt="$DOKKU_ROOT/$app/tls/server.crt"
+    if [[ "$FORCE" != "true" ]] && [[ -e "$crt" ]]; then
+      # the app has a cert: only replace it when it is the previous global cert
+      # (a renewal); an app-specific cert is left untouched
+      fingerprint="$(fn-global-cert-fingerprint "$crt")"
+      [[ -n "$OLD_FINGERPRINT" && "$fingerprint" == "$OLD_FINGERPRINT" ]] || continue
+    fi
+    if [[ -e "$crt" ]]; then
       dokku_log_info1 "Re-applying global certificate to $app"
-      fn-global-cert-apply "$app" "$CRT_FILE" "$KEY_FILE" || true
-    done
-  )
+    else
+      dokku_log_info1 "Applying global certificate to $app"
+    fi
+    fn-global-cert-apply "$app" "$CRT_FILE" "$KEY_FILE" || true
+  done <<< "$apps"
 }
 
 fn-ssl-enabled() {
@@ -164,7 +175,7 @@ fn-global-cert-help-content() {
   declare desc="return $PLUGIN_COMMAND_PREFIX plugin help content"
   cat<<help_content
     ${PLUGIN_COMMAND_PREFIX}, Alias for certs:help
-    ${PLUGIN_COMMAND_PREFIX}:set CRT KEY, Adds a global ssl endpoint. Can also import from a tarball on stdin
+    ${PLUGIN_COMMAND_PREFIX}:set [--force] CRT KEY, Adds a global ssl endpoint. Can also import from a tarball on stdin
     ${PLUGIN_COMMAND_PREFIX}:generate, Generate a key and certificate signing request (and self-signed certificate)
     ${PLUGIN_COMMAND_PREFIX}:remove, Remove the SSL configuration
     ${PLUGIN_COMMAND_PREFIX}:report [<flag>], Displays a global ssl report
