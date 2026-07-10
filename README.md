@@ -19,7 +19,7 @@ dokku plugin:install https://github.com/josegonzalez/dokku-global-cert.git globa
 global-cert:apply <app>...  # Applies the global certificate to one or more existing apps, overwriting any certificate they already have
 global-cert:generate        # Generate a key and certificate signing request (and self-signed certificate)
 global-cert:remove          # Remove the SSL configuration
-global-cert:report [<flag>] # Displays a global ssl report
+global-cert:report [<app>|--global] [<flag>] # Displays a global-cert report for one or more apps
 global-cert:set [--force] CRT KEY # Sets a global ssl endpoint. Can also import from a tarball on stdin
 ```
 
@@ -86,3 +86,33 @@ dokku global-cert:remove
 ```
 
 If the global certificate is removed, existing applications will continue to have the global certificate set.
+
+### reporting
+
+The `global-cert:report` command displays the global certificate status. With no arguments it prints one block per application, each showing whether that application currently serves the global certificate (`--global-cert-applied`) alongside the global certificate's properties:
+
+```shell
+dokku global-cert:report
+dokku global-cert:report node-js-app
+```
+
+An application serves the global certificate when its certificate matches the one stored by `global-cert:set`; an application given its own certificate reports `--global-cert-applied` as `false`.
+
+Pass `--global` to report on the global certificate itself instead of an application:
+
+```shell
+dokku global-cert:report --global
+```
+
+A single value can be fetched by passing the corresponding flag, which is useful for scripting:
+
+```shell
+dokku global-cert:report node-js-app --global-cert-applied
+dokku global-cert:report --global --global-cert-enabled
+```
+
+The report can also be emitted as JSON with `--format json`, in which case the keys are the flag names with the leading `--global-cert-` stripped. The `--format` flag cannot be combined with a single info flag:
+
+```shell
+dokku global-cert:report --global --format json
+```
