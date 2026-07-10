@@ -117,6 +117,73 @@ fn-global-cert-sync() {
   done <<< "$apps"
 }
 
+fn-global-cert-set() {
+  declare desc="imports an SSL cert/key combo from a tarball on STDIN or from cert/key file paths"
+
+  local FORCE=false
+  # dokku's global `--force` (e.g. `dokku --force global-cert:set ...`) is consumed by the
+  # cli before it reaches this subcommand, but parse_args exports it as this env var.
+  [[ "${DOKKU_APPS_FORCE_DELETE:-}" == "1" ]] && FORCE=true
+
+  local positional=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -f | --force) FORCE=true; shift ;;
+      *) positional+=("$1"); shift ;;
+    esac
+  done
+  set -- "${positional[@]}"
+
+  declare CRT_FILE="$1" KEY_FILE="$2"
+
+  if fn-is-file-import "$CRT_FILE" "$KEY_FILE"; then
+    # importing from file
+    true
+  elif fn-is-tar-import; then
+    local CERTS_SET_TMP_WORK_DIR=$(mktemp -d "/tmp/dokku_certs_set.XXXX")
+    pushd "$CERTS_SET_TMP_WORK_DIR" &> /dev/null
+    # clear the RETURN trap as it fires so it runs once for this function and does
+    # not fire again when the calling wrapper (set/add/update) returns
+    trap 'popd &> /dev/null || true; rm -rf $CERTS_SET_TMP_WORK_DIR > /dev/null; trap - RETURN' RETURN
+    tar xvf - <&0
+
+    local CRT_FILE_SEARCH=$(find . -not -path '*/\.*' -type f | grep ".crt$")
+    local CRT_FILE_COUNT=$(printf "%s" "$CRT_FILE_SEARCH" | grep -c '^')
+    if [[ $CRT_FILE_COUNT -lt 1 ]]; then
+      dokku_log_fail "Tar archive is missing .crt file"
+    elif [[ $CRT_FILE_COUNT -gt 1 ]]; then
+      dokku_log_fail "Tar archive contains more than one .crt file"
+    else
+      local CRT_FILE=$CRT_FILE_SEARCH
+    fi
+
+    local KEY_FILE_SEARCH=$(find . -not -path '*/\.*' -type f | grep ".key$")
+    local KEY_FILE_COUNT=$(printf "%s" "$KEY_FILE_SEARCH" | grep -c '^')
+    if [[ $KEY_FILE_COUNT -lt 1 ]]; then
+      dokku_log_fail "Tar archive is missing .key file"
+    elif [[ $KEY_FILE_COUNT -gt 1 ]]; then
+      dokku_log_fail "Tar archive contains more than one .key file"
+    else
+      local KEY_FILE=$KEY_FILE_SEARCH
+    fi
+  else
+    dokku_log_fail "Tar archive containing server.crt and server.key expected on stdin"
+  fi
+
+  # capture the outgoing global cert's fingerprint before it is overwritten, so
+  # apps that currently use it can be re-issued the new cert below
+  local OLD_FINGERPRINT
+  OLD_FINGERPRINT="$(fn-global-cert-fingerprint "$PLUGIN_CONFIG_ROOT/server.crt")"
+
+  mkdir -p "$PLUGIN_CONFIG_ROOT"
+  cp "$CRT_FILE" "$PLUGIN_CONFIG_ROOT/server.crt"
+  cp "$KEY_FILE" "$PLUGIN_CONFIG_ROOT/server.key"
+  chmod 750 "$PLUGIN_CONFIG_ROOT"
+  chmod 640 "$PLUGIN_CONFIG_ROOT/server.crt" "$PLUGIN_CONFIG_ROOT/server.key"
+
+  fn-global-cert-sync "$OLD_FINGERPRINT" "$FORCE"
+}
+
 fn-global-cert-applied() {
   declare desc="returns true if the app currently serves the global certificate"
   local APP="$1"
@@ -204,11 +271,14 @@ fn-global-cert-help-content() {
   declare desc="return $PLUGIN_COMMAND_PREFIX plugin help content"
   cat<<help_content
     ${PLUGIN_COMMAND_PREFIX}, Alias for certs:help
+    ${PLUGIN_COMMAND_PREFIX}:add [--force] CRT KEY, Alias for ${PLUGIN_COMMAND_PREFIX}:set
     ${PLUGIN_COMMAND_PREFIX}:apply <app>..., Applies the global certificate to one or more existing apps, overwriting any certificate they already have
     ${PLUGIN_COMMAND_PREFIX}:set [--force] CRT KEY, Adds a global ssl endpoint. Can also import from a tarball on stdin
     ${PLUGIN_COMMAND_PREFIX}:generate, Generate a key and certificate signing request (and self-signed certificate)
     ${PLUGIN_COMMAND_PREFIX}:remove, Remove the SSL configuration
     ${PLUGIN_COMMAND_PREFIX}:report [<flag>], Displays a global ssl report
+    ${PLUGIN_COMMAND_PREFIX}:show <crt|key|csr>, Show the global server.crt, server.key, or server.csr on stdout
+    ${PLUGIN_COMMAND_PREFIX}:update [--force] CRT KEY, Alias for ${PLUGIN_COMMAND_PREFIX}:set
 help_content
 }
 
