@@ -4,19 +4,19 @@ source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
 source "$PLUGIN_AVAILABLE_PATH/global-cert/internal-functions"
 set -eo pipefail; [[ $DOKKU_TRACE ]] && set -x
 
-cmd-global-cert-set() {
-  #E set a global certificate combination using a full path on disk
-  #E dokku $PLUGIN_COMMAND_PREFIX:set server.crt server.key
+cmd-global-cert-add() {
+  #E add a global certificate combination using a full path on disk
+  #E dokku $PLUGIN_COMMAND_PREFIX:add server.crt server.key
   #E reapply the certificate to every app including apps with their own cert
-  #E dokku $PLUGIN_COMMAND_PREFIX:set --force server.crt server.key
+  #E dokku $PLUGIN_COMMAND_PREFIX:add --force server.crt server.key
   #A crt-file, path to the certificate file
   #A key-file, path to the key file
   #F --force, reapplies the certificate to every app including apps with their own cert
-  declare desc="imports an SSL cert/key combo either on STDIN via a tarball or from specified cert/key filenames"
-  local cmd="$PLUGIN_COMMAND_PREFIX:set" argv=("$@"); [[ ${argv[0]} == "$cmd" ]] && shift 1
+  declare desc="alias for $PLUGIN_COMMAND_PREFIX:set"
+  local cmd="$PLUGIN_COMMAND_PREFIX:add" argv=("$@"); [[ ${argv[0]} == "$cmd" ]] && shift 1
   declare CRT_FILE="$1" KEY_FILE="$2"
 
   fn-global-cert-set "$@"
 }
 
-cmd-global-cert-set "$@"
+cmd-global-cert-add "$@"

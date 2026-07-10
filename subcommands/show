@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+source "$(cd "$(dirname "$(dirname "${BASH_SOURCE[0]}")" )" && pwd)/config"
+source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
+source "$PLUGIN_AVAILABLE_PATH/global-cert/internal-functions"
+set -eo pipefail; [[ $DOKKU_TRACE ]] && set -x
+
+cmd-global-cert-show() {
+  #E show the global certificate on stdout
+  #E dokku $PLUGIN_COMMAND_PREFIX:show crt
+  #E show the global certificate key on stdout
+  #E dokku $PLUGIN_COMMAND_PREFIX:show key
+  #E export the global certificate to a file
+  #E dokku $PLUGIN_COMMAND_PREFIX:show crt > server.crt
+  #A key-type, the material to show, either crt, key, or csr
+  declare desc="shows the global server.crt, server.key, or server.csr on stdout"
+  local cmd="$PLUGIN_COMMAND_PREFIX:show" argv=("$@"); [[ ${argv[0]} == "$cmd" ]] && shift 1
+  declare KEY_TYPE="$1"
+
+  if [[ "$KEY_TYPE" != "crt" ]] && [[ "$KEY_TYPE" != "key" ]] && [[ "$KEY_TYPE" != "csr" ]]; then
+    dokku_log_fail "specify 'crt', 'key', or 'csr'"
+  fi
+
+  if [[ "$KEY_TYPE" == "csr" ]]; then
+    # a csr only exists after global-cert:generate; it is not part of the
+    # crt/key endpoint that fn-is-ssl-enabled checks for
+    if [[ ! -e "$PLUGIN_CONFIG_ROOT/server.csr" ]]; then
+      dokku_log_fail "A global certificate signing request is not defined"
+    fi
+  elif ! fn-is-ssl-enabled "$PLUGIN_CONFIG_ROOT"; then
+    dokku_log_fail "A global SSL endpoint is not defined"
+  fi
+
+  cat "$PLUGIN_CONFIG_ROOT/server.$KEY_TYPE"
+}
+
+cmd-global-cert-show "$@"
