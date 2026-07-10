@@ -117,6 +117,35 @@ fn-global-cert-sync() {
   done <<< "$apps"
 }
 
+fn-global-cert-applied() {
+  declare desc="returns true if the app currently serves the global certificate"
+  local APP="$1"
+  local APP_CRT GLOBAL_CRT APP_FINGERPRINT GLOBAL_FINGERPRINT
+
+  # no global cert means nothing can be applied
+  if ! fn-is-ssl-enabled "$PLUGIN_CONFIG_ROOT"; then
+    echo "false"
+    return
+  fi
+
+  APP_CRT="$DOKKU_ROOT/$APP/tls/server.crt"
+  if [[ ! -e "$APP_CRT" ]]; then
+    echo "false"
+    return
+  fi
+
+  # the app serves the global cert when its leaf cert matches the global one;
+  # this is the same fingerprint comparison fn-global-cert-sync relies on
+  GLOBAL_CRT="$PLUGIN_CONFIG_ROOT/server.crt"
+  APP_FINGERPRINT="$(fn-global-cert-fingerprint "$APP_CRT")"
+  GLOBAL_FINGERPRINT="$(fn-global-cert-fingerprint "$GLOBAL_CRT")"
+  if [[ -n "$APP_FINGERPRINT" ]] && [[ "$APP_FINGERPRINT" == "$GLOBAL_FINGERPRINT" ]]; then
+    echo "true"
+  else
+    echo "false"
+  fi
+}
+
 fn-ssl-enabled() {
   local SSL_ENABLED=false
 
@@ -183,13 +212,101 @@ fn-global-cert-help-content() {
 help_content
 }
 
-cmd-global-cert-report() {
-  declare desc="Display the configured consul registration status for an application"
-  declare cmd="$PLUGIN_COMMAND_PREFIX:report" argv=("$@"); [[ ${argv[0]} == "$cmd" ]] && shift 1
-  declare INFO_FLAG="$1"
-  local flag flag_map key match valid_flags value_exists
+fn-global-cert-report-parse-args() {
+  declare desc="strip --format and --global from a report invocation"
+  REPORT_FORMAT="stdout"
+  REPORT_IS_GLOBAL="false"
+  REPORT_ARGS=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --format)
+        REPORT_FORMAT="$2"
+        shift 2
+        ;;
+      --global)
+        REPORT_IS_GLOBAL="true"
+        shift
+        ;;
+      *)
+        REPORT_ARGS+=("$1")
+        shift
+        ;;
+    esac
+  done
+}
 
-  flag_map=(
+fn-global-cert-report-validate-format() {
+  declare desc="reject --format when combined with an info flag"
+  declare FORMAT="$1" INFO_FLAG="$2"
+  if [[ "$FORMAT" != "stdout" ]] && [[ -n "$INFO_FLAG" ]]; then
+    dokku_log_fail "--format flag cannot be specified when specifying an info flag"
+  fi
+}
+
+fn-global-cert-report-emit-json() {
+  declare desc="emit a flag_map as a JSON object, stripping the --global-cert- key prefix"
+  declare flag_map_name="$1"
+  local -n flag_map_ref="$flag_map_name"
+  local json_output="{}"
+  local flag key value
+  for flag in "${flag_map_ref[@]}"; do
+    key="$(echo "$flag" | cut -d':' -f1 | sed 's/^--global-cert-//')"
+    value="$(echo "$flag" | cut -d':' -f2- | sed 's/^ //')"
+    json_output="$(echo "$json_output" | jq -c --arg key "$key" --arg value "$value" '. + {($key): $value}')"
+  done
+  echo "$json_output"
+}
+
+cmd-global-cert-report() {
+  declare desc="displays a global-cert report for one or more apps"
+  declare cmd="$PLUGIN_COMMAND_PREFIX:report" argv=("$@"); [[ ${argv[0]} == "$cmd" ]] && shift 1
+  fn-global-cert-report-parse-args "$@"
+  set -- "${REPORT_ARGS[@]}"
+
+  declare APP="${1:-}" INFO_FLAG="${2:-}"
+  local INSTALLED_APPS app
+  # dokku_apps hard-fails ("You haven't deployed any applications yet") when there
+  # are no apps; the exit escapes the command substitution, so catch it at the
+  # assignment level (an inner `|| true` would be skipped by the exit)
+  INSTALLED_APPS="$(dokku_apps 2>/dev/null)" || INSTALLED_APPS=""
+
+  # a leading flag means no app was given, only an info flag
+  if [[ -n "$APP" ]] && [[ "$APP" == --* ]]; then
+    INFO_FLAG="$APP"
+    APP=""
+  fi
+
+  if [[ "$REPORT_IS_GLOBAL" == "true" ]]; then
+    APP="--global"
+  fi
+
+  if [[ "$APP" == "--global" ]]; then
+    cmd-global-cert-report-single "--global" "$INFO_FLAG" "$REPORT_FORMAT"
+  elif [[ -z "$APP" ]]; then
+    for app in $INSTALLED_APPS; do
+      cmd-global-cert-report-single "$app" "$INFO_FLAG" "$REPORT_FORMAT" | tee || true
+    done
+  else
+    cmd-global-cert-report-single "$APP" "$INFO_FLAG" "$REPORT_FORMAT"
+  fi
+}
+
+cmd-global-cert-report-single() {
+  declare desc="display the global-cert status for a single app or the global cert"
+  declare APP="$1" INFO_FLAG="$2" FORMAT="${3:-stdout}"
+  local flag flag_map key match valid_flags value_exists value size
+
+  if [[ "$APP" != "--global" ]]; then
+    verify_app_name "$APP"
+  fi
+
+  flag_map=()
+  # applied is the only app-specific fact; the global cert properties are
+  # identical for every app and are dropped from the --global scope
+  if [[ "$APP" != "--global" ]]; then
+    flag_map+=("--global-cert-applied: $(fn-global-cert-applied "$APP")")
+  fi
+  flag_map+=(
     "--global-cert-dir: $PLUGIN_CONFIG_ROOT"
     "--global-cert-enabled: $(fn-ssl-enabled)"
     "--global-cert-expires-at: $(fn-ssl-expires-at)"
@@ -199,11 +316,23 @@ cmd-global-cert-report() {
     "--global-cert-subject: $(fn-ssl-subject)"
     "--global-cert-verified: $(fn-ssl-verified)"
   )
+
+  fn-global-cert-report-validate-format "$FORMAT" "$INFO_FLAG"
+
+  if [[ "$FORMAT" == "json" ]]; then
+    fn-global-cert-report-emit-json flag_map
+    return
+  fi
+
   if [[ -z "$INFO_FLAG" ]]; then
-    dokku_log_info2_quiet "Global SSL Information"
+    if [[ "$APP" == "--global" ]]; then
+      dokku_log_info2_quiet "global global-cert information"
+    else
+      dokku_log_info2_quiet "${APP} global-cert information"
+    fi
     for flag in "${flag_map[@]}"; do
       key="$(echo "${flag#--}" | cut -f1 -d' ' | tr - ' ')"
-      dokku_log_verbose "$(printf "%-20s %-25s" "${key^}" "${flag#*: }")"
+      dokku_log_verbose "$(printf "%-30s %-25s" "${key^}" "${flag#*: }")"
     done
   else
     match=false

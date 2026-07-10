@@ -3,8 +3,16 @@ source "$PLUGIN_AVAILABLE_PATH/global-cert/internal-functions"
 set -eo pipefail; [[ $DOKKU_TRACE ]] && set -x
 
 global-cert-report-cmd() {
-  #E get a report on the global certificate configuration
+  #E get a report on every app's global certificate status
   #E dokku $PLUGIN_COMMAND_PREFIX:report
+  #E get the report for a single app
+  #E dokku $PLUGIN_COMMAND_PREFIX:report node-js-app
+  #E get a report on the global certificate itself
+  #E dokku $PLUGIN_COMMAND_PREFIX:report --global
+  #A app, an app to report on (or --global for the global certificate)
+  #F --format, output format, either stdout (default) or json
+  #F --global, report on the global certificate instead of an app
+  #F --global-cert-applied, whether the app currently serves the global certificate
   #F --global-cert-dir,
   #F --global-cert-enabled,
   #F --global-cert-expires-at,
@@ -13,9 +21,9 @@ global-cert-report-cmd() {
   #F --global-cert-starts-at,
   #F --global-cert-subject,
   #F --global-cert-verified,
-  declare desc="display the configured global-cert status for an application"
+  declare desc="displays a global-cert report for one or more apps"
   local cmd="$PLUGIN_COMMAND_PREFIX:report" argv=("$@"); [[ ${argv[0]} == "$cmd" ]] && shift 1
-  declare INFO_FLAG="$1"
+  declare APP="$1" INFO_FLAG="$2"
 
   cmd-global-cert-report "$@"
 }

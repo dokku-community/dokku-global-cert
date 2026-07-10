@@ -41,12 +41,14 @@ reset_global_cert() {
   $SUDO rm -f "$(global_cert_crt)" "$(global_cert_key)" "$(global_cert_csr)"
 }
 
-# Value of a single report info flag, with openssl's verify chatter suppressed.
-# `global-cert:report` builds its full flag map up front, so `openssl verify` on
-# a self-signed cert prints "self-signed certificate" warnings to stderr even
-# when an unrelated flag is requested; drop stderr so callers see just the value.
+# Value of a single global-scope report info flag, with openssl's verify chatter
+# suppressed. `global-cert:report` builds its full flag map up front, so `openssl
+# verify` on a self-signed cert prints "self-signed certificate" warnings to
+# stderr even when an unrelated flag is requested; drop stderr so callers see just
+# the value. A bare info flag now reports per-app, so `--global` selects the global
+# certificate scope these helpers assert against.
 global_cert_report_value() {
-  dokku global-cert:report "$1" 2>/dev/null
+  dokku global-cert:report --global "$1" 2>/dev/null
 }
 
 # Report the plugin's view of whether a global cert is installed.
