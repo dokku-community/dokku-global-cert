@@ -21,7 +21,10 @@ jobs:
       fail-fast: false
       matrix:
         dokku_version:
+          # 0.38.3 predates the certs-set trigger (exercises the certs:add
+          # fallback); 0.38.22 ships it (exercises the trigger path)
           - 0.38.3
+          - 0.38.22
 
     env:
       DOKKU_VERSION: ${{ matrix.dokku_version }}
@@ -66,7 +69,10 @@ jobs:
       fail-fast: false
       matrix:
         dokku_version:
+          # 0.38.3 predates the certs-set trigger (exercises the certs:add
+          # fallback); 0.38.22 ships it (exercises the trigger path)
           - 0.38.3
+          - 0.38.22
 
     env:
       DOKKU_VERSION: ${{ matrix.dokku_version }}
