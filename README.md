@@ -121,6 +121,16 @@ dokku global-cert:report node-js-app --global-cert-applied
 dokku global-cert:report --global --global-cert-enabled
 ```
 
+The `--global-cert-fingerprint` and `--global-cert-serial` flags identify the stored certificate, which the issuer, subject and validity window cannot do on their own - two certificates issued for the same names in the same window look identical to those fields. The fingerprint is the sha256 digest of the certificate's DER encoding, in the bare uppercase form `openssl x509 -noout -fingerprint -sha256` prints once its label is stripped, so it compares directly against `dokku certs:report <app> --ssl-fingerprint`:
+
+```shell
+dokku global-cert:report --global --global-cert-fingerprint
+```
+
+This lets a tool decide whether the certificate it holds is already installed without pulling the certificate back off the server with `global-cert:show`.
+
+Like every flag other than `--global-cert-applied`, both describe the stored global certificate in either scope - `dokku global-cert:report node-js-app --global-cert-fingerprint` reports the global certificate's fingerprint, not that application's. Use `--global-cert-applied` to ask whether an application is serving the global certificate, and core's `dokku certs:report <app> --ssl-fingerprint` to identify whatever certificate an application actually has.
+
 The report can also be emitted as JSON with `--format json`, in which case the keys are the flag names with the leading `--global-cert-` stripped. The `--format` flag cannot be combined with a single info flag:
 
 ```shell

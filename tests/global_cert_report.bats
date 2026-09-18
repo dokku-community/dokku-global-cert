@@ -35,8 +35,10 @@ install_fixture_cert() {
   [[ "$output" == *"global global-cert information"* ]]
   [[ "$output" == *"Global cert dir"* ]]
   [[ "$output" == *"Global cert enabled"* ]]
+  [[ "$output" == *"Global cert fingerprint"* ]]
   [[ "$output" == *"Global cert hostnames"* ]]
   [[ "$output" == *"Global cert issuer"* ]]
+  [[ "$output" == *"Global cert serial"* ]]
   [[ "$output" == *"Global cert subject"* ]]
   [[ "$output" == *"Global cert verified"* ]]
   # applied is app-specific and must not appear in the global scope
@@ -56,9 +58,13 @@ install_fixture_cert() {
 }
 
 @test "(global-cert:report) value flags are empty but succeed without a cert" {
+  # a value helper that returned non-zero here would abort the whole report,
+  # since cmd-global-cert-report-single expands them inside an array literal
+  # under `set -e`
   local flag
   for flag in --global-cert-hostnames --global-cert-issuer --global-cert-subject \
-    --global-cert-expires-at --global-cert-starts-at --global-cert-verified; do
+    --global-cert-expires-at --global-cert-starts-at --global-cert-verified \
+    --global-cert-fingerprint --global-cert-serial; do
     run global_cert_report_value "$flag"
     [ "$status" -eq 0 ]
     [ -z "$output" ]
@@ -139,6 +145,56 @@ install_fixture_cert() {
   [ -n "$output" ]
 }
 
+@test "(global-cert:report) --global-cert-fingerprint matches the installed cert" {
+  install_fixture_cert
+  local expected
+  # the report prints the bare hex, so strip openssl's "<label>=" prefix. The
+  # label itself differs between OpenSSL 1.x and 3.x, which is why the plugin
+  # cuts at the separator rather than matching it.
+  expected="$(openssl x509 -noout -fingerprint -sha256 -in "${SRC}/server.crt" | cut -d= -f2-)"
+
+  run global_cert_report_value --global-cert-fingerprint
+  [ "$status" -eq 0 ]
+  [ "$output" = "$expected" ]
+  [[ "$output" != *"Fingerprint="* ]]
+}
+
+@test "(global-cert:report) --global-cert-serial matches the installed cert" {
+  install_fixture_cert
+  local expected
+  expected="$(openssl x509 -noout -serial -in "${SRC}/server.crt" | cut -d= -f2-)"
+
+  run global_cert_report_value --global-cert-serial
+  [ "$status" -eq 0 ]
+  [ "$output" = "$expected" ]
+  [[ "$output" != *"serial="* ]]
+}
+
+@test "(global-cert:report) fingerprint and serial follow a replaced certificate" {
+  # the identity question this flag exists to answer: after the global cert is
+  # replaced, the report must describe the new cert, not a cached value
+  install_fixture_cert
+  local first_fingerprint second_fingerprint expected_fingerprint expected_serial
+  first_fingerprint="$(global_cert_report_value --global-cert-fingerprint)"
+  [ -n "$first_fingerprint" ]
+
+  OWN="$(gc_fixture_dir)"
+  make_self_signed_cert "$OWN" "replacement.example.com" "DNS:replacement.example.com"
+  dokku global-cert:set "${OWN}/server.crt" "${OWN}/server.key"
+  expected_fingerprint="$(openssl x509 -noout -fingerprint -sha256 -in "${OWN}/server.crt" | cut -d= -f2-)"
+  expected_serial="$(openssl x509 -noout -serial -in "${OWN}/server.crt" | cut -d= -f2-)"
+
+  run global_cert_report_value --global-cert-fingerprint
+  [ "$status" -eq 0 ]
+  [ "$output" = "$expected_fingerprint" ]
+  second_fingerprint="$output"
+  [ "$second_fingerprint" != "$first_fingerprint" ]
+
+  run global_cert_report_value --global-cert-serial
+  [ "$status" -eq 0 ]
+  [ "$output" = "$expected_serial" ]
+}
+
 @test "(global-cert:report) --global full report reflects an installed cert" {
   install_fixture_cert
   run dokku global-cert:report --global
@@ -202,16 +258,23 @@ install_fixture_cert() {
   [[ "$output" == *"global.example.com"* ]]
 }
 
-@test "(global-cert:report) app-scope --format json includes the applied key" {
+@test "(global-cert:report) app-scope --format json includes the applied key alongside the shared keys" {
   install_fixture_cert
   create_app "$APP"
   run dokku global-cert:apply "$APP"
   [ "$status" -eq 0 ]
 
+  local expected_fingerprint
+  expected_fingerprint="$(openssl x509 -noout -fingerprint -sha256 -in "${SRC}/server.crt" | cut -d= -f2-)"
+
   run bash -c "dokku global-cert:report '$APP' --format json 2>/dev/null"
   [ "$status" -eq 0 ]
   [ "$(echo "$output" | jq -r '.applied')" = "true" ]
   [ "$(echo "$output" | jq -r '.enabled')" = "true" ]
+  # fingerprint and serial describe the stored global certificate, not the app's
+  # own cert, exactly as issuer/subject/expires-at already do in this scope
+  [ "$(echo "$output" | jq -r '.fingerprint')" = "$expected_fingerprint" ]
+  [ -n "$(echo "$output" | jq -r '.serial')" ]
 }
 
 # --- no-app (per-app) scope -------------------------------------------------
@@ -258,7 +321,7 @@ install_fixture_cert() {
   [ "$status" -eq 0 ]
   local keys
   keys="$(echo "$output" | jq -r '. | keys | sort | join(",")')"
-  [ "$keys" = "dir,enabled,expires-at,hostnames,issuer,starts-at,subject,verified" ]
+  [ "$keys" = "dir,enabled,expires-at,fingerprint,hostnames,issuer,serial,starts-at,subject,verified" ]
   # applied is app-specific and must not appear in the global scope
   [ "$(echo "$output" | jq -r 'has("applied")')" = "false" ]
 }

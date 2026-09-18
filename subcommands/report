@@ -16,8 +16,10 @@ global-cert-report-cmd() {
   #F --global-cert-dir,
   #F --global-cert-enabled,
   #F --global-cert-expires-at,
+  #F --global-cert-fingerprint, sha256 fingerprint of the stored global certificate
   #F --global-cert-hostnames,
   #F --global-cert-issuer,
+  #F --global-cert-serial, serial number of the stored global certificate
   #F --global-cert-starts-at,
   #F --global-cert-subject,
   #F --global-cert-verified,

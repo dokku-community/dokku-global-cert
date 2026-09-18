@@ -54,12 +54,37 @@ fn-is-tar-import() {
   return 0
 }
 
-fn-global-cert-fingerprint() {
-  declare desc="prints the sha256 fingerprint of a certificate, empty when unreadable"
+# OpenSSL labels its hex output differently across versions: 3.x prints
+# "sha256 Fingerprint=..." where 1.x and LibreSSL print "SHA256 Fingerprint=...".
+# Cutting at the first "=" keeps the extraction independent of that label, and
+# neither a fingerprint nor a serial can contain an "=". Only hex fields may be
+# passed through here, as uppercasing would corrupt a subject.
+fn-global-cert-format-hex-field() {
+  declare desc="extracts the value from an openssl key=value hex line, uppercased"
+  local LINE="$1" VALUE
+
+  # every path must return 0: callers expand this inside an array literal under
+  # `set -e`, where a non-zero status aborts the whole command
+  [[ "$LINE" == *=* ]] || return 0
+  VALUE="${LINE#*=}"
+  VALUE="${VALUE#"${VALUE%%[![:space:]]*}"}"
+  VALUE="${VALUE%"${VALUE##*[![:space:]]}"}"
+  echo "${VALUE^^}"
+}
+
+fn-global-cert-hex-field() {
+  declare desc="prints an openssl hex field of a certificate, empty when unreadable"
   local CRT_FILE="$1"
 
   [[ -r "$CRT_FILE" ]] || return 0
-  openssl x509 -noout -fingerprint -sha256 -in "$CRT_FILE" 2>/dev/null || true
+  fn-global-cert-format-hex-field "$(openssl x509 -in "$CRT_FILE" -noout "${@:2}" 2>/dev/null || true)"
+}
+
+fn-global-cert-fingerprint() {
+  declare desc="prints the bare uppercase sha256 fingerprint of a certificate, empty when unreadable"
+  local CRT_FILE="$1"
+
+  fn-global-cert-hex-field "$CRT_FILE" -fingerprint -sha256
 }
 
 fn-global-cert-certs-set-available() {
@@ -213,6 +238,10 @@ fn-global-cert-applied() {
   fi
 }
 
+# Value helpers for the report, each describing the stored global certificate.
+# Every one of them must return 0: cmd-global-cert-report-single expands them
+# inside an array literal under `set -e`, where a non-zero status would abort the
+# report with no output. The `if` wrapper provides that when no cert is installed.
 fn-ssl-enabled() {
   local SSL_ENABLED=false
 
@@ -228,6 +257,15 @@ fn-ssl-expires-at() {
   fi
 }
 
+fn-ssl-fingerprint() {
+  if fn-is-ssl-enabled "$PLUGIN_CONFIG_ROOT"; then
+    # delegate to the same helper fn-global-cert-applied and fn-global-cert-sync
+    # compare with, so the reported digest can never drift from the one the
+    # plugin acts on
+    fn-global-cert-fingerprint "$PLUGIN_CONFIG_ROOT/server.crt"
+  fi
+}
+
 fn-ssl-hostnames() {
   if fn-is-ssl-enabled "$PLUGIN_CONFIG_ROOT"; then
     fn-get-ssl-hostnames "$PLUGIN_CONFIG_ROOT" | xargs
@@ -237,6 +275,12 @@ fn-ssl-hostnames() {
 fn-ssl-issuer() {
   if fn-is-ssl-enabled "$PLUGIN_CONFIG_ROOT"; then
     openssl x509 -in "$PLUGIN_CONFIG_ROOT/server.crt" -noout -text | grep "Issuer:" | xargs | sed -e "s/Issuer: //g"
+  fi
+}
+
+fn-ssl-serial() {
+  if fn-is-ssl-enabled "$PLUGIN_CONFIG_ROOT"; then
+    fn-global-cert-hex-field "$PLUGIN_CONFIG_ROOT/server.crt" -serial
   fi
 }
 
@@ -371,8 +415,9 @@ cmd-global-cert-report-single() {
   fi
 
   flag_map=()
-  # applied is the only app-specific fact; the global cert properties are
-  # identical for every app and are dropped from the --global scope
+  # applied is the only app-specific fact, and is dropped from the --global
+  # scope; every property below describes the stored global certificate and is
+  # identical in both scopes
   if [[ "$APP" != "--global" ]]; then
     flag_map+=("--global-cert-applied: $(fn-global-cert-applied "$APP")")
   fi
@@ -380,8 +425,10 @@ cmd-global-cert-report-single() {
     "--global-cert-dir: $PLUGIN_CONFIG_ROOT"
     "--global-cert-enabled: $(fn-ssl-enabled)"
     "--global-cert-expires-at: $(fn-ssl-expires-at)"
+    "--global-cert-fingerprint: $(fn-ssl-fingerprint)"
     "--global-cert-hostnames: $(fn-ssl-hostnames)"
     "--global-cert-issuer: $(fn-ssl-issuer)"
+    "--global-cert-serial: $(fn-ssl-serial)"
     "--global-cert-starts-at: $(fn-ssl-starts-at)"
     "--global-cert-subject: $(fn-ssl-subject)"
     "--global-cert-verified: $(fn-ssl-verified)"
