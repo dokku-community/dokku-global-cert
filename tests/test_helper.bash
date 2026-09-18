@@ -169,7 +169,10 @@ fire_trigger() {
 # grepping `dokku certs:report` text, so a byte-level cert swap is caught.
 
 # sha256 fingerprint of an app's imported cert / of the global cert. Empty when
-# the file is missing or unreadable (mirrors fn-global-cert-fingerprint).
+# the file is missing or unreadable. These deliberately keep openssl's raw
+# "<label>=<hex>" output rather than mirroring fn-global-cert-fingerprint, which
+# reports the bare hex: they are only ever compared to each other, and staying
+# independent of the code under test is the point.
 app_cert_fingerprint() { $SUDO openssl x509 -noout -fingerprint -sha256 -in "$(app_tls_crt "$1")" 2>/dev/null; }
 global_cert_fingerprint() { $SUDO openssl x509 -noout -fingerprint -sha256 -in "$(global_cert_crt)" 2>/dev/null; }
 

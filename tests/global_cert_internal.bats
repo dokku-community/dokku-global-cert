@@ -74,18 +74,106 @@ teardown() {
   [ "${lines[2]}" = "c.example.com" ]
 }
 
+# --- fn-global-cert-format-hex-field ----------------------------------------
+# The label openssl prints before the "=" varies by version (3.x "sha256",
+# 1.x/LibreSSL "SHA256"), so the formatter cuts at the separator rather than
+# matching a literal. These cases are the bash port of core's TestFormatSSLHexField.
+
+@test "(fn-global-cert-format-hex-field) strips the OpenSSL 1.x fingerprint label" {
+  run run_internal_fn fn-global-cert-format-hex-field "SHA256 Fingerprint=B7:DF:D5:84:C6:2E:27:BF"
+  [ "$status" -eq 0 ]
+  [ "$output" = "B7:DF:D5:84:C6:2E:27:BF" ]
+}
+
+@test "(fn-global-cert-format-hex-field) strips the OpenSSL 3.x fingerprint label" {
+  run run_internal_fn fn-global-cert-format-hex-field "sha256 Fingerprint=B7:DF:D5:84:C6:2E:27:BF"
+  [ "$status" -eq 0 ]
+  [ "$output" = "B7:DF:D5:84:C6:2E:27:BF" ]
+}
+
+@test "(fn-global-cert-format-hex-field) uppercases a lowercase digest" {
+  run run_internal_fn fn-global-cert-format-hex-field "sha256 Fingerprint=b7:df:d5:84:c6:2e:27:bf"
+  [ "$status" -eq 0 ]
+  [ "$output" = "B7:DF:D5:84:C6:2E:27:BF" ]
+}
+
+@test "(fn-global-cert-format-hex-field) returns a serial unchanged" {
+  run run_internal_fn fn-global-cert-format-hex-field "serial=322844AD8CD6D4FF76B05C50833AB91DEEDA2AD1"
+  [ "$status" -eq 0 ]
+  [ "$output" = "322844AD8CD6D4FF76B05C50833AB91DEEDA2AD1" ]
+}
+
+@test "(fn-global-cert-format-hex-field) uppercases a lowercase serial" {
+  run run_internal_fn fn-global-cert-format-hex-field "serial=c46823e5d7c09fc9"
+  [ "$status" -eq 0 ]
+  [ "$output" = "C46823E5D7C09FC9" ]
+}
+
+@test "(fn-global-cert-format-hex-field) preserves a negative serial" {
+  run run_internal_fn fn-global-cert-format-hex-field "serial=-1F2E"
+  [ "$status" -eq 0 ]
+  [ "$output" = "-1F2E" ]
+}
+
+@test "(fn-global-cert-format-hex-field) trims surrounding whitespace" {
+  run run_internal_fn fn-global-cert-format-hex-field "  serial=C46823E5D7C09FC9  "
+  [ "$status" -eq 0 ]
+  [ "$output" = "C46823E5D7C09FC9" ]
+}
+
+# The next two are the `set -e` guard: cmd-global-cert-report-single expands
+# these helpers inside an array literal, where a non-zero status aborts the whole
+# report with no output. A junk or empty line must yield "" and still exit 0.
+
+@test "(fn-global-cert-format-hex-field) returns empty and exits 0 for a line with no separator" {
+  run run_internal_fn fn-global-cert-format-hex-field "unable to load certificate"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "(fn-global-cert-format-hex-field) returns empty and exits 0 for empty input" {
+  run run_internal_fn fn-global-cert-format-hex-field ""
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+# --- fn-global-cert-hex-field -----------------------------------------------
+
+@test "(fn-global-cert-hex-field) prints the bare uppercase serial of a readable cert" {
+  local dir expected
+  dir="$(gc_fixture_dir)"
+  FIXTURES+=("$dir")
+  make_self_signed_cert "$dir" "serial.example.com"
+  expected="$(openssl x509 -noout -serial -in "${dir}/server.crt" | cut -d= -f2- | tr '[:lower:]' '[:upper:]')"
+
+  run run_internal_fn fn-global-cert-hex-field "${dir}/server.crt" -serial
+  [ "$status" -eq 0 ]
+  [ "$output" = "$expected" ]
+  [[ "$output" != *"serial="* ]]
+}
+
+@test "(fn-global-cert-hex-field) prints nothing and exits 0 for a missing file" {
+  run run_internal_fn fn-global-cert-hex-field "/tmp/gc-missing-$$-does-not-exist.crt" -serial
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
 # --- fn-global-cert-fingerprint ---------------------------------------------
 
-@test "(fn-global-cert-fingerprint) prints the sha256 fingerprint of a readable cert" {
+@test "(fn-global-cert-fingerprint) prints the bare uppercase sha256 fingerprint of a readable cert" {
   local dir expected
   dir="$(gc_fixture_dir)"
   FIXTURES+=("$dir")
   make_self_signed_cert "$dir" "fp.example.com"
-  expected="$(openssl x509 -noout -fingerprint -sha256 -in "${dir}/server.crt")"
+  # openssl prints "<label>=<hex>"; the function reports just the hex, so the
+  # value is directly comparable to core's `certs:report --ssl-fingerprint`
+  expected="$(openssl x509 -noout -fingerprint -sha256 -in "${dir}/server.crt" | cut -d= -f2- | tr '[:lower:]' '[:upper:]')"
 
   run run_internal_fn fn-global-cert-fingerprint "${dir}/server.crt"
   [ "$status" -eq 0 ]
   [ "$output" = "$expected" ]
+  # pin the format: the openssl label must not leak into the value
+  [[ "$output" != *"Fingerprint="* ]]
 }
 
 @test "(fn-global-cert-fingerprint) prints nothing and exits 0 for a missing file" {

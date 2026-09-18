@@ -51,6 +51,8 @@ load 'test_helper'
   [ "$status" -eq 0 ]
   [[ "$output" == *"global-cert:report"* ]]
   [[ "$output" == *"--global-cert-enabled"* ]]
+  [[ "$output" == *"--global-cert-fingerprint"* ]]
+  [[ "$output" == *"--global-cert-serial"* ]]
 }
 
 @test "(global-cert:help generate) prints the generate example" {
